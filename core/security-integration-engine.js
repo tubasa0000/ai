@@ -1,248 +1,208 @@
 /**
- * SECURITY INTEGRATION ENGINE
- * ================================
- * 強制システムプロンプトとユーザープロンプトを統合管理
- * すべてのAI処理はこのエンジンを通過する必要があります
+ * Security Integration Engine
+ * Orchestrates all security modules to provide comprehensive protection
  */
 
-const {
-  ENFORCED_SYSTEM_RULES,
-  PromptValidator,
-  ResponseValidator,
-} = require('./enforced-system-prompt');
+const EnforcedSystemPrompt = require('./enforced-system-prompt');
+const PromptValidator = require('./prompt-validator');
+const InputOutputFilter = require('./input-output-filter');
+const AuditLogger = require('./audit-logger');
 
 class SecurityIntegrationEngine {
-  constructor() {
-    this.requestLog = [];
-    this.auditTrail = [];
+  constructor(config = {}) {
+    this.config = {
+      enableAuditLog: config.enableAuditLog !== false,
+      enableStrictMode: config.enableStrictMode !== false,
+      logDir: config.logDir || './logs',
+      ...config
+    };
+
+    // Initialize security modules
+    this.enforcedPrompt = new EnforcedSystemPrompt();
+    this.validator = new PromptValidator();
+    this.filter = new InputOutputFilter();
+    this.auditLogger = this.config.enableAuditLog ? new AuditLogger(this.config.logDir) : null;
   }
 
   /**
-   * ユーザーのシステムプロンプトとクエリを処理
-   * @param {object} input
-   *   - userSystemPrompt: ユーザーが定義したシステムプロンプト
-   *   - userQuery: ユーザーの質問
-   *   - context: その他のコンテキスト情報
-   * @returns {Promise<object>} {prompt: 最終プロンプト, metadata: {}}
+   * Process a user request through all security layers
+   * @param {string} userMessage - The user's message
+   * @param {Object} context - Additional context
+   * @returns {Object} Security processing result
    */
-  async processInput(input) {
-    const { userSystemPrompt, userQuery, context = {} } = input;
-    const requestId = this._generateRequestId();
-
-    console.log(`[${requestId}] Processing input...`);
-
-    // ステップ1: ユーザープロンプト検証
-    const validationResult = await PromptValidator.validateUserPrompt(
-      userSystemPrompt || ''
-    );
-
-    if (!validationResult.isValid) {
-      console.warn(`[${requestId}] User prompt violations detected:`, validationResult.violations);
-      this._logAuditEvent({
-        requestId,
-        type: 'PROMPT_VALIDATION_FAILED',
-        violations: validationResult.violations,
-        timestamp: new Date(),
-      });
-    }
-
-    // ステップ2: 最終プロンプトの構築
-    const finalPrompt = this._buildFinalPrompt(
-      validationResult.sanitized || userSystemPrompt || '',
-      userQuery,
-      context
-    );
-
-    // ステップ3: メタデータの記録
-    const metadata = {
-      requestId,
-      userPromptValid: validationResult.isValid,
-      violations: validationResult.violations,
+  processRequest(userMessage, context = {}) {
+    const requestId = this.generateRequestId();
+    const processResult = {
+      requestId: requestId,
       timestamp: new Date().toISOString(),
+      stages: {}
     };
 
-    this._logRequest({
-      requestId,
-      userSystemPrompt,
-      userQuery,
-      finalPrompt,
-      metadata,
-    });
+    try {
+      // Stage 1: Input Filtering
+      processResult.stages.inputFilter = this.filter.filterInput(userMessage);
+      if (!processResult.stages.inputFilter.isClean && this.config.enableStrictMode) {
+        return this.createBlockedResult(requestId, 'Input filtering detected issues', processResult.stages.inputFilter.issues);
+      }
 
-    return {
-      prompt: finalPrompt,
-      metadata,
-    };
-  }
+      // Stage 2: Prompt Validation
+      const filteredMessage = processResult.stages.inputFilter.filtered;
+      processResult.stages.validation = this.validator.validate(filteredMessage);
+      if (!processResult.stages.validation.isValid) {
+        return this.createBlockedResult(requestId, 'Prompt validation failed', processResult.stages.validation.errors);
+      }
 
-  /**
-   * AI回答を処理・検証
-   * @param {object} input
-   *   - response: AIの生の回答
-   *   - requestId: リクエストID
-   *   - userQuery: 元のユーザー質問
-   * @returns {Promise<object>} {safeResponse: 安全な回答, metadata: {}}
-   */
-  async processResponse(input) {
-    const { response, requestId, userQuery } = input;
+      // Stage 3: Enforced Rules Check
+      processResult.stages.enforcedrules = this.enforcedPrompt.validateAgainstRules(filteredMessage);
+      if (!processResult.stages.enforcedrules.isValid) {
+        return this.createBlockedResult(requestId, 'Violated enforced security rules', processResult.stages.enforcedrules.violations);
+      }
 
-    console.log(`[${requestId}] Validating response...`);
+      // All validations passed
+      processResult.approved = true;
+      processResult.message = 'Request approved for processing';
+      processResult.sanitizedInput = filteredMessage;
+      processResult.systemPrompt = this.enforcedPrompt.getSystemPrompt();
 
-    // 回答検証
-    const validationResult = await ResponseValidator.validateResponse(
-      response,
-      userQuery
-    );
+      // Log approved request
+      if (this.auditLogger) {
+        this.auditLogger.logRequest({
+          requestId: requestId,
+          approved: true,
+          userMessage: userMessage,
+          context: context
+        });
+      }
 
-    if (!validationResult.safe) {
-      console.warn(`[${requestId}] Response issues detected:`, validationResult.issues);
-      this._logAuditEvent({
-        requestId,
-        type: 'RESPONSE_VALIDATION_FAILED',
-        issues: validationResult.issues,
-        timestamp: new Date(),
-      });
+      return processResult;
+    } catch (error) {
+      console.error('Security integration error:', error);
+      return this.createBlockedResult(requestId, 'Security processing error', [error.message]);
     }
+  }
 
-    // 最終回答の構築
-    const safeResponse = this._buildFinalResponse(
-      validationResult.sanitized || response,
-      validationResult.references
-    );
-
-    // メタデータ
-    const metadata = {
-      requestId,
-      safe: validationResult.safe,
-      issues: validationResult.issues,
-      references: validationResult.references,
+  /**
+   * Process AI response through security filters
+   * @param {string} aiResponse - The AI's response
+   * @param {Object} requestContext - The request context
+   * @returns {Object} Processing result
+   */
+  processResponse(aiResponse, requestContext = {}) {
+    const processResult = {
       timestamp: new Date().toISOString(),
+      stages: {}
     };
 
-    this._logAuditEvent({
-      requestId,
-      type: 'RESPONSE_PROCESSED',
-      safe: validationResult.safe,
-      timestamp: new Date(),
-    });
-
-    return {
-      safeResponse,
-      metadata,
-    };
-  }
-
-  /**
-   * 最終プロンプトを構築
-   * @private
-   */
-  _buildFinalPrompt(userPrompt, userQuery, context) {
-    const enforcedPrompt = ENFORCED_SYSTEM_RULES.MANDATORY_SAFETY_RULES;
-    const validationRules = ENFORCED_SYSTEM_RULES.PROMPT_VALIDATION_RULES;
-    const responseRules = ENFORCED_SYSTEM_RULES.RESPONSE_VALIDATION_RULES;
-    const referenceRules = ENFORCED_SYSTEM_RULES.REFERENCE_RULES;
-
-    return `
-${enforcedPrompt}
-
-${validationRules}
-
-${responseRules}
-
-${referenceRules}
-
-${userPrompt ? `【ユーザー定義ルール】\n${userPrompt}\n\n` : ''}【ユーザーの質問】
-${userQuery}
-
-${context.additionalInstructions ? `【追加指示】\n${context.additionalInstructions}\n` : ''}`;
-  }
-
-  /**
-   * 最終回答を構築
-   * @private
-   */
-  _buildFinalResponse(sanitizedResponse, references) {
-    let response = sanitizedResponse;
-
-    // 参照情報を追加
-    if (references && references.length > 0) {
-      response += '\n\n【参照情報】\n';
-      references.forEach((ref) => {
-        if (ref.url) {
-          response += `• ${ref.text}: ${ref.url}\n`;
-        } else {
-          response += `• ${ref.text}\n`;
+    try {
+      // Stage 1: Output Filtering
+      processResult.stages.outputFilter = this.filter.filterOutput(aiResponse);
+      
+      if (!processResult.stages.outputFilter.isClean) {
+        if (this.config.enableStrictMode) {
+          return this.createBlockedResult(null, 'Output contains policy violations', processResult.stages.outputFilter.issues);
         }
-      });
+        // Log warning but allow
+        if (this.auditLogger) {
+          this.auditLogger.logSecurityEvent({
+            type: 'OUTPUT_WARNING',
+            severity: 'MEDIUM',
+            issues: processResult.stages.outputFilter.issues,
+            context: requestContext
+          });
+        }
+      }
+
+      processResult.approved = true;
+      processResult.filteredResponse = processResult.stages.outputFilter.filtered;
+
+      // Log response
+      if (this.auditLogger) {
+        this.auditLogger.logInteraction({
+          type: 'RESPONSE',
+          original: aiResponse,
+          filtered: processResult.filteredResponse,
+          issues: processResult.stages.outputFilter.issues,
+          context: requestContext
+        });
+      }
+
+      return processResult;
+    } catch (error) {
+      console.error('Response processing error:', error);
+      return this.createBlockedResult(null, 'Response processing error', [error.message]);
     }
-
-    // フッター
-    response += `\n\n---\n※本回答は強制安全規則に準拠しています。不適切な内容は自動的に削除・修正されています。`;
-
-    return response;
   }
 
   /**
-   * リクエストをログに記録
-   * @private
+   * Get the enforced system prompt
+   * @returns {string} System prompt
    */
-  _logRequest(data) {
-    this.requestLog.push({
-      ...data,
-      timestamp: new Date().toISOString(),
-    });
+  getSystemPrompt() {
+    return this.enforcedPrompt.getSystemPrompt();
   }
 
   /**
-   * 監査イベントをログに記録
-   * @private
+   * Get all enforced rules
+   * @returns {Array} Array of enforced rules
    */
-  _logAuditEvent(event) {
-    this.auditTrail.push({
-      ...event,
-      timestamp: new Date().toISOString(),
-    });
+  getEnforcedRules() {
+    return this.enforcedPrompt.getEnforcedRules();
   }
 
   /**
-   * リクエストIDを生成
-   * @private
+   * Get security report
+   * @returns {Object} Security report
    */
-  _generateRequestId() {
-    return `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  /**
-   * 監査ログを取得
-   */
-  getAuditLog() {
+  getSecurityReport() {
     return {
-      requestLog: this.requestLog,
-      auditTrail: this.auditTrail,
-      summary: {
-        totalRequests: this.requestLog.length,
-        violationCount: this.auditTrail.filter(
-          (e) => e.type.includes('FAILED')
-        ).length,
+      timestamp: new Date().toISOString(),
+      configuration: {
+        auditLogging: this.config.enableAuditLog,
+        strictMode: this.config.enableStrictMode
       },
+      securityModules: {
+        enforcedPrompt: 'active',
+        promptValidator: 'active',
+        inputOutputFilter: 'active',
+        auditLogger: this.auditLogger ? 'active' : 'inactive'
+      },
+      auditSummary: this.auditLogger ? this.auditLogger.getSecuritySummary() : null,
+      enforcedRules: this.getEnforcedRules()
     };
   }
 
   /**
-   * ログをクリア
+   * Create a blocked result
+   * @private
    */
-  clearLogs() {
-    this.requestLog = [];
-    this.auditTrail = [];
+  createBlockedResult(requestId, reason, issues = []) {
+    const result = {
+      requestId: requestId,
+      timestamp: new Date().toISOString(),
+      approved: false,
+      message: reason,
+      issues: issues
+    };
+
+    // Log violation
+    if (this.auditLogger) {
+      this.auditLogger.logViolation({
+        requestId: requestId,
+        reason: reason,
+        issues: issues
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Generate a unique request ID
+   * @private
+   */
+  generateRequestId() {
+    return `SEC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 
-/**
- * グローバルインスタンス
- */
-const securityEngine = new SecurityIntegrationEngine();
-
-module.exports = {
-  SecurityIntegrationEngine,
-  securityEngine,
-};
+module.exports = SecurityIntegrationEngine;
