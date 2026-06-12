@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat AI - Security Hardened Edition</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            max-height: 800px;
+        }
+
+        /* ヘッダー */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+        }
+
+        .header-info {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .security-badge {
+            background: rgba(0, 255, 0, 0.3);
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            border: 1px solid rgba(0, 255, 0, 0.6);
+        }
+
+        /* プロンプト選択 */
+        .prompt-selector {
+            background: #f5f5f5;
+            padding: 15px 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .prompt-selector label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .prompt-selector select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .prompt-info {
+            font-size: 12px;
+            color: #666;
+            margin-left: auto;
+        }
+
+        /* チャットエリア */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message.assistant {
+            justify-content: flex-start;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .message-metadata {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            padding: 0 16px;
+        }
+
+        .security-warning {
+            background: #fff3cd;
+            border-left: 4px solid #ff6b6b;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #856404;
+        }
+
+        .reference-section {
+            background: #f0f7ff;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            margin-top: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .reference-section h4 {
+            color: #667eea;
+            margin-bottom: 6px;
+        }
+
+        .reference-link {
+            display: block;
+            color: #667eea;
+            text-decoration: none;
+            margin: 4px 0;
+            word-break: break-all;
+        }
+
+        .reference-link:hover {
+            text-decoration: underline;
+        }
+
+        /* 入力エリア */
+        .input-area {
+            padding: 20px;
+            border-top: 1px solid #ddd;
+            background: white;
+            display: flex;
+            gap: 10px;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            display: flex;
+            gap: 10px;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: none;
+            max-height: 100px;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:active {
+            background: #4956ba;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 6px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* レスポンシブ */
+        @media (max-width: 600px) {
+            .container {
+                max-width: 100%;
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 10px;
+            }
+
+            .prompt-selector {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .prompt-info {
+                margin-left: 0;
+            }
+        }
+
+        .chat-empty {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #999;
+        }
+
+        .chat-empty h2 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .chat-empty p {
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <div class="header">
+            <div>
+                <h1>🔒 Chat AI - Security Hardened</h1>
+                <div class="header-info">強制安全規則が有効です</div>
+            </div>
+            <div class="security-badge">✓ セキュア</div>
+        </div>
+
+        <!-- プロンプト選択 -->
+        <div class="prompt-selector">
+            <label for="prompt-select">システムプロンプト:</label>
+            <select id="prompt-select" onchange="changePrompt()">
+                <option value="default">Default Assistant</option>
+                <option value="educational">Educational Assistant</option>
+                <option value="research">Research Assistant</option>
+                <option value="creative">Creative Assistant</option>
+                <option value="coding">Coding Assistant</option>
+                <option value="technical">Technical Support</option>
+            </select>
+            <div class="prompt-info" id="prompt-info">デフォルトプロンプトが選択されています</div>
+        </div>
+
+        <!-- チャットエリア -->
+        <div class="chat-area" id="chat-area">
+            <div class="chat-empty">
+                <h2>Chat AI</h2>
+                <p>質問を入力してください。すべての回答は強制安全規則に準拠しています。</p>
+            </div>
+        </div>
+
+        <!-- 入力エリア -->
+        <div class="input-area">
+            <div class="input-wrapper">
+                <textarea 
+                    id="message-input" 
+                    placeholder="質問を入力してください..." 
+                    rows="1"
+                    onkeypress="if(event.key==='Enter' && !event.shiftKey) {event.preventDefault(); sendMessage();}"
+                ></textarea>
+                <button onclick="sendMessage()" id="send-btn">送信</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== グローバル状態 =====
+        let isLoading = false;
+        let selectedPrompt = 'default';
+        const chatArea = document.getElementById('chat-area');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        // ===== メッセージ送信 =====
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message || isLoading) return;
+
+            // UI更新
+            isLoading = true;
+            sendBtn.disabled = true;
+            
+            // チャット開始時に空メッセージを削除
+            const emptyChat = chatArea.querySelector('.chat-empty');
+            if (emptyChat) emptyChat.remove();
+
+            // ユーザーメッセージ表示
+            addMessage(message, 'user');
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+
+            try {
+                // セキュリティエンジンを通してプロンプト処理
+                const processedInput = await processInputThroughSecurity({
+                    userSystemPrompt: getUserSystemPrompt(),
+                    userQuery: message,
+                    context: { selectedPrompt }
+                });
+
+                // AIに送信（シミュレーション）
+                const response = await getAIResponse(processedInput.prompt);
+
+                // セキュリティエンジンを通して回答処理
+                const processedResponse = await processResponseThroughSecurity({
+                    response,
+                    userQuery: message
+                });
+
+                // 回答表示
+                addMessage(processedResponse.safeResponse, 'assistant', processedResponse.metadata);
+            } catch (error) {
+                addMessage(`エラーが発生しました: ${error.message}`, 'assistant');
+            } finally {
+                isLoading = false;
+                sendBtn.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        // ===== メッセージ表示 =====
+        function addMessage(text, role, metadata = {}) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = text;
+
+            messageDiv.appendChild(contentDiv);
+
+            if (metadata && metadata.issues && metadata.issues.length > 0) {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'security-warning';
+                warningDiv.innerHTML = `
+                    <strong>セキュリティ警告:</strong><br>
+                    ${metadata.issues.map(i => `• ${i}`).join('<br>')}
+                `;
+                messageDiv.appendChild(warningDiv);
+            }
+
+            if (metadata && metadata.references && metadata.references.length > 0) {
+                const refDiv = document.createElement('div');
+                refDiv.className = 'reference-section';
+                refDiv.innerHTML = '<h4>参照情報:</h4>';
+                metadata.references.forEach(ref => {
+                    if (ref.url) {
+                        const link = document.createElement('a');
+                        link.href = ref.url;
+                        link.target = '_blank';
+                        link.className = 'reference-link';
+                        link.textContent = `• ${ref.text}`;
+                        refDiv.appendChild(link);
+                    } else {
+                        const span = document.createElement('span');
+                        span.className = 'reference-link';
+                        span.textContent = `• ${ref.text}`;
+                        refDiv.appendChild(span);
+                    }
+                });
+                messageDiv.appendChild(refDiv);
+            }
+
+            chatArea.appendChild(messageDiv);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        // ===== プロンプト変更 =====
+        function changePrompt() {
+            selectedPrompt = document.getElementById('prompt-select').value;
+            const names = {
+                default: 'Default Assistant',
+                educational: 'Educational Assistant',
+                research: 'Research Assistant',
+                creative: 'Creative Assistant',
+                coding: 'Coding Assistant',
+                technical: 'Technical Support'
+            };
+            document.getElementById('prompt-info').textContent = 
+                names[selectedPrompt] + ' が選択されています';
+        }
+
+        // ===== セキュリティ処理シミュレーション =====
+        function getUserSystemPrompt() {
+            const prompts = {
+                default: 'You are a helpful assistant.',
+                educational: 'You are an educational assistant.',
+                research: 'You are a research assistant.',
+                creative: 'You are a creative assistant.',
+                coding: 'You are a coding assistant.',
+                technical: 'You are a technical support assistant.'
+            };
+            return prompts[selectedPrompt] || prompts.default;
+        }
+
+        async function processInputThroughSecurity(input) {
+            // シミュレーション：実際にはバックエンドで処理
+            console.log('Processing input through security layer...', input);
+            return {
+                prompt: `${input.userSystemPrompt}\n\n${input.userQuery}`,
+                metadata: { requestId: generateRequestId() }
+            };
+        }
+
+        async function processResponseThroughSecurity(input) {
+            // シミュレーション：実際にはバックエンドで処理
+            console.log('Validating response...', input);
+            return {
+                safeResponse: input.response,
+                metadata: {
+                    safe: true,
+                    issues: [],
+                    references: []
+                }
+            };
+        }
+
+        async function getAIResponse(prompt) {
+            // シミュレーション：実際にはOpenAI APIなどを呼び出す
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    resolve('これは詳細な回答です。\n\n強制安全規則に準拠して作成されました。');
+                }, 1000);
+            });
+        }
+
+        function generateRequestId() {
+            return `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+
+        // ===== 初期化 =====
+        messageInput.focus();
+    </script>
+</body>
+</html>
